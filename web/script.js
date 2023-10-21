@@ -55,24 +55,31 @@ class Heap {
 
 //? Settings
 //* Image
-const IMAGE_URL = "/map.webp";
+const IMAGE_URL = '/map.webp';
 const IMAGE_OFFSET = [105, 57];
 const IMAGE_SIZE = [542, 638];
 const IMAGE_LEFT_UPPER_COORDINATE = [-124.61, 42.28];
 const IMAGE_RIGHT_BOTTOM_COORDINATE = [-113.79, 32.28];
 
 //* Coordinate to pixel
-const COORDINATE_TO_PIXEL = [IMAGE_SIZE[0] / (IMAGE_LEFT_UPPER_COORDINATE[0] - IMAGE_RIGHT_BOTTOM_COORDINATE[0]), IMAGE_SIZE[1] / (IMAGE_LEFT_UPPER_COORDINATE[1] - IMAGE_RIGHT_BOTTOM_COORDINATE[1])];
+const COORDINATE_TO_PIXEL = [
+	IMAGE_SIZE[0] / (IMAGE_LEFT_UPPER_COORDINATE[0] - IMAGE_RIGHT_BOTTOM_COORDINATE[0]),
+	IMAGE_SIZE[1] / (IMAGE_LEFT_UPPER_COORDINATE[1] - IMAGE_RIGHT_BOTTOM_COORDINATE[1])
+];
 
 //* Graph data
-const VERTICES_URL = "/graph/vertices";
-const EDGES_URL = "/graph/edges";
+const VERTICES_URL = '/graph/vertices';
+const EDGES_URL = '/graph/edges';
 
-//* Coloring graph
-const VERTEX_HIGHLIGHT = "#f0f020";
-const EDGE_DEFAULT = "#2020f0";
-const EDGE_HIGHLIGHT = "#f02020";
-const EDGE_FINAL = "#20ff20";
+//* Colors
+const VERTEX_HIGHLIGHT = '#f0f020';
+const EDGE_DEFAULT = '#2020f0';
+const EDGE_HIGHLIGHT = '#f02020';
+const EDGE_FINAL = '#20ff20';
+
+//* Geometry
+const VERTEX_RADIUS = 5;
+const EDGE_WIDTH = 1;
 
 //? Utils
 const distance = ([x1, y1], [x2, y2]) => Math.sqrt((x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2));
@@ -123,21 +130,19 @@ const setup = async () => {
 };
 
 //? Drawing
-const VERTEX_RADIUS = 5;
-const EDGE_WIDTH = 1;
-
 let canvas, ctxt;
 const setupCanvas = async () => {
-	canvas = document.getElementById("canvas");
+	canvas = document.getElementById('canvas');
 	canvas.width = IMAGE_SIZE[0];
 	canvas.height = IMAGE_SIZE[1];
-	ctxt = canvas.getContext("2d");
-	await redrawCanvas();
+	ctxt = canvas.getContext('2d');
+	await redrawMap();
 };
 
 const drawVertex = (color, v) => {
 	ctxt.fillStyle = color;
 	ctxt.beginPath();
+
 	ctxt.ellipse(...coordinatesToPixels(V[v]), VERTEX_RADIUS, VERTEX_RADIUS, 0, 0, 2 * Math.PI);
 	ctxt.closePath();
 	ctxt.fill();
@@ -153,9 +158,9 @@ const drawEdge = (color, [v, u]) => {
 	ctxt.stroke();
 };
 
-const redrawCanvas = () => {
+const redrawMap = () => {
 	return new Promise(resolve => {
-		const img = document.createElement("img");
+		const img = document.createElement('img');
 		img.src = IMAGE_URL;
 
 		img.onload = () => {
@@ -180,12 +185,12 @@ const findShortestPath = (src, dest) => {
 	const paths = [];
 	V.forEach(() => paths.push([]));
 
-	queue.push({vertex: src, distance: 0});
+	queue.push({ vertex: src, distance: 0 });
 	distances[src] = 0;
 
 	let verticesVisited = 0;
 	while (!queue.empty()) {
-		const {vertex} = queue.pop();
+		const { vertex } = queue.pop();
 		verticesVisited++;
 		if (vertex === dest) break;
 
@@ -195,7 +200,7 @@ const findShortestPath = (src, dest) => {
 			const newDistance = distances[vertex] + w;
 			if (distances[u] <= newDistance) return;
 
-			queue.push({vertex: u, distance: newDistance});
+			queue.push({ vertex: u, distance: newDistance });
 			paths[u] = [...paths[vertex], [vertex, u, w]];
 			distances[u] = newDistance;
 		});
@@ -204,37 +209,47 @@ const findShortestPath = (src, dest) => {
 	paths[dest].forEach(e => drawEdge(EDGE_FINAL, e));
 
 	const text = `Vertices visited: ${verticesVisited}, distance: ${Math.round(paths[dest].reduce((distance, cur) => distance + cur[2], 0) * 100) / 100}`; // prettier-ignore
-	document.getElementById("info").innerText = text;
+	document.getElementById('info').innerText = text;
 };
 
 //? Click handler
-let source = null;
+let lastPath = null,
+	path = [];
 const onClick = async event => {
 	const x = event.pageX - canvas.offsetLeft;
 	const y = event.pageY - canvas.offsetTop;
 	if (x < 0 || y < 0 || x > IMAGE_SIZE[0] || y > IMAGE_SIZE[1]) return;
 
-	if (source === null) {
-		await redrawCanvas();
-		source = findClosestVertex([x, y]);
-		drawVertex(VERTEX_HIGHLIGHT, source);
-		return;
-	}
+	if (path.length === 0) await redrawMap();
 
-	const destination = findClosestVertex([x, y]);
-	drawVertex(VERTEX_HIGHLIGHT, destination);
-	findShortestPath(source, destination);
-	source = null;
+	const point = [x, y];
+	const vertex = findClosestVertex(point);
+	drawVertex(VERTEX_HIGHLIGHT, vertex);
+
+	path.push(vertex);
+
+	if (path.length < 2) return;
+
+	findShortestPath(...path);
+	lastPath = path;
+	path = [];
 };
 
 //? Toggle algorithm
-const onToggle = event => {
+const onToggle = async event => {
 	useAStar = !useAStar;
-	event.target.innerText = useAStar ? "A*" : "Dijkstra's";
+	event.target.innerText = useAStar ? 'A*' : "Dijkstra's";
+
+	if (lastPath) {
+		await redrawMap();
+		drawVertex(VERTEX_HIGHLIGHT, lastPath[0]);
+		drawVertex(VERTEX_HIGHLIGHT, lastPath[1]);
+		findShortestPath(...lastPath);
+	}
 };
 
 //? Setup
 setup().then(() => {
-	window.addEventListener("click", onClick);
-	document.getElementById("toggleAlgorithm").addEventListener("click", onToggle);
+	window.addEventListener('click', onClick);
+	document.getElementById('toggleAlgorithm').addEventListener('click', onToggle);
 });
