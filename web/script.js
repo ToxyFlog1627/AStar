@@ -1,27 +1,8 @@
 //? Priority queue
 class Heap {
-	_arr;
-	_compare;
-
 	constructor(compare) {
 		this._arr = [];
 		this._compare = compare;
-	}
-
-	_heapify(currentIndex) {
-		let largestIndex = currentIndex;
-		const leftIndex = currentIndex * 2 + 1;
-		const rightIndex = currentIndex * 2 + 2;
-
-		if (leftIndex < this._arr.length && this._compare(this._arr[leftIndex], this._arr[largestIndex]) < 0) largestIndex = leftIndex;
-		if (rightIndex < this._arr.length && this._compare(this._arr[rightIndex], this._arr[largestIndex]) < 0) largestIndex = rightIndex;
-
-		if (largestIndex !== currentIndex) {
-			const temp = this._arr[currentIndex];
-			this._arr[currentIndex] = this._arr[largestIndex];
-			this._arr[largestIndex] = temp;
-			this._heapify(largestIndex);
-		}
 	}
 
 	empty = () => this._arr.length === 0;
@@ -30,9 +11,9 @@ class Heap {
 		this._arr.push(value);
 
 		let currentIndex = this._arr.length - 1;
-		while (currentIndex) {
+		while (currentIndex > 0) {
 			const parentIndex = Math.floor((currentIndex - 1) / 2);
-			if (this._compare(this._arr[parentIndex], this._arr[currentIndex]) >= 0) break;
+			if (!this._compare(this._arr[parentIndex], this._arr[currentIndex])) break;
 
 			const temp = this._arr[currentIndex];
 			this._arr[currentIndex] = this._arr[parentIndex];
@@ -47,7 +28,23 @@ class Heap {
 
 		const value = this._arr[0];
 		this._arr[0] = this._arr.pop();
-		this._heapify(0);
+
+		let index = 0;
+		while (true) {
+			let largestIndex = index;
+			const leftIndex = index * 2 + 1;
+			const rightIndex = index * 2 + 2;
+
+			if (leftIndex < this._arr.length && this._compare(this._arr[leftIndex], this._arr[largestIndex])) largestIndex = leftIndex;
+			if (rightIndex < this._arr.length && this._compare(this._arr[rightIndex], this._arr[largestIndex])) largestIndex = rightIndex;
+
+			if (largestIndex === index) break;
+
+			const temp = this._arr[index];
+			this._arr[index] = this._arr[largestIndex];
+			this._arr[largestIndex] = temp;
+			index = largestIndex;
+		}
 
 		return value;
 	}
@@ -82,7 +79,22 @@ const VERTEX_RADIUS = 5;
 const EDGE_WIDTH = 1;
 
 //? Utils
-const distance = ([x1, y1], [x2, y2]) => Math.sqrt((x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2));
+const toRadians = degrees => (degrees / 180) * Math.PI;
+
+const distance = (p1, p2) => {
+	const lat1 = toRadians(p1[0]);
+	const long1 = toRadians(p1[1]);
+	const lat2 = toRadians(p2[0]);
+	const long2 = toRadians(p2[1]);
+
+	const dlong = long2 - long1;
+	const dlat = lat2 - lat1;
+
+	let ans = Math.pow(Math.sin(dlat / 2), 2) + Math.cos(lat1) * Math.cos(lat2) * Math.pow(Math.sin(dlong / 2), 2);
+	ans = 12742 * Math.asin(Math.sqrt(ans));
+
+	return ans;
+};
 
 const coordinatesToPixels = ([x, y]) => [(IMAGE_LEFT_UPPER_COORDINATE[0] - x) * COORDINATE_TO_PIXEL[0], (IMAGE_LEFT_UPPER_COORDINATE[1] - y) * COORDINATE_TO_PIXEL[1]];
 const pixelsToCoordinates = ([x, y]) => [IMAGE_LEFT_UPPER_COORDINATE[0] - x / COORDINATE_TO_PIXEL[0], IMAGE_LEFT_UPPER_COORDINATE[1] - y / COORDINATE_TO_PIXEL[1]];
@@ -109,7 +121,12 @@ const fetchAndParse = async url => {
 	const response = await fetch(url);
 	const data = await response.text();
 	//* Values are separated by " " in format of V = {id, x, y}, E = {id, v, u, w}
-	return data.split("\n").map(element =>element.split(" ").slice(1).map(n => Number(n))); // prettier-ignore
+	return data.split('\n').map(element =>
+		element
+			.split(' ')
+			.slice(1)
+			.map(n => Number(n))
+	);
 };
 
 //* Fetching the data and creating adjacency list
@@ -119,9 +136,10 @@ const setup = async () => {
 	E = await fetchAndParse(EDGES_URL);
 
 	adjList = [];
-	E.forEach(([v, u, w]) => {
+	E.forEach(([v, u]) => {
 		if (!adjList[v]) adjList[v] = [];
 		if (!adjList[u]) adjList[u] = [];
+		const w = distance(V[v], V[u]);
 		adjList[v].push([u, w]);
 		adjList[u].push([v, w]);
 	});
@@ -177,13 +195,12 @@ const findShortestPath = (src, dest) => {
 	const compare = (a, b) => {
 		let difference = a.distance - b.distance;
 		if (useAStar) difference += distance(V[a.vertex], V[dest]) - distance(V[b.vertex], V[dest]);
-		return difference;
+		return difference < 0;
 	};
 
 	const queue = new Heap(compare);
 	const distances = Array(V.length).fill(Infinity);
-	const paths = [];
-	V.forEach(() => paths.push([]));
+	const previous = Array(V.length).fill(-1);
 
 	queue.push({ vertex: src, distance: 0 });
 	distances[src] = 0;
@@ -201,20 +218,24 @@ const findShortestPath = (src, dest) => {
 			if (distances[u] <= newDistance) return;
 
 			queue.push({ vertex: u, distance: newDistance });
-			paths[u] = [...paths[vertex], [vertex, u, w]];
+			previous[u] = vertex;
 			distances[u] = newDistance;
 		});
 	}
 
-	paths[dest].forEach(e => drawEdge(EDGE_FINAL, e));
+	let totalDistance = 0;
+	for (let prev = previous[previous[dest]], cur = previous[dest]; cur != -1; prev = cur, cur = previous[cur]) {
+		totalDistance += distance(V[prev], V[cur]);
+		drawEdge(EDGE_FINAL, [prev, cur]);
+	}
 
-	const text = `Vertices visited: ${verticesVisited}, distance: ${Math.round(paths[dest].reduce((distance, cur) => distance + cur[2], 0) * 100) / 100}`; // prettier-ignore
+	const text = `Vertices visited: ${verticesVisited}, distance: ${Math.round(totalDistance * 100) / 100}`; // prettier-ignore
 	document.getElementById('info').innerText = text;
 };
 
 //? Click handler
-let lastPath = null,
-	path = [];
+let lastPath = null;
+let path = [];
 const onClick = async event => {
 	const x = event.pageX - canvas.offsetLeft;
 	const y = event.pageY - canvas.offsetTop;
@@ -241,6 +262,7 @@ const onToggle = async event => {
 	event.target.innerText = useAStar ? 'A*' : "Dijkstra's";
 
 	if (lastPath) {
+		document.getElementById('info').innerText = 'LOADING';
 		await redrawMap();
 		drawVertex(VERTEX_HIGHLIGHT, lastPath[0]);
 		drawVertex(VERTEX_HIGHLIGHT, lastPath[1]);
